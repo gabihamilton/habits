@@ -312,7 +312,7 @@ const HABITS = [
   { id: 'weight', label: 'Tracked weight this morning' },
   { id: 'dhea', label: 'DHEA' },
   { id: 'vitamin', label: 'Vitamin' },
-  { id: 'probiotic', label: 'Probiotic' },
+  { id: 'probiotic', label: 'Probiotic', until: '2026-09-01' },
   { id: 'creatine', label: 'Creatine' },
   { id: 'stretch', label: 'Stretching (10 min)' },
   { id: 'workout', label: 'Working out' },
@@ -330,6 +330,19 @@ const HABITS = [
 
 const STORE_KEY = 'gabi-habit-tracker';
 
+// A habit is "active" on a given day if that day falls within its optional
+// [from, until] window (both inclusive, 'YYYY-MM-DD'). Keys and bounds are all
+// ISO date strings, so lexicographic comparison is a valid date comparison.
+function isActive(h, key) {
+  if (h.from && key < h.from) return false;
+  if (h.until && key > h.until) return false;
+  return true;
+}
+
+function activeHabits(key) {
+  return HABITS.filter(h => isActive(h, key));
+}
+
 function loadStore() {
   try {
     return JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
@@ -346,14 +359,17 @@ function dateKey(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function countDone(dayState) {
+function countDone(key) {
+  const dayState = store[key];
   if (!dayState) return 0;
-  return HABITS.filter(h => dayState[h.id]).length;
+  return activeHabits(key).filter(h => dayState[h.id]).length;
 }
 
-function fullyDone(dayState) {
+function fullyDone(key) {
+  const dayState = store[key];
   if (!dayState) return false;
-  return countDone(dayState) === HABITS.length;
+  const active = activeHabits(key);
+  return active.length > 0 && active.every(h => dayState[h.id]);
 }
 
 function computeCurrentStreak(store) {
@@ -361,7 +377,7 @@ function computeCurrentStreak(store) {
   let cursor = new Date();
   while (true) {
     const key = dateKey(cursor);
-    if (fullyDone(store[key])) {
+    if (fullyDone(key)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
     } else {
@@ -378,7 +394,7 @@ function computeLongestStreak(store) {
   let running = 0;
   let prevDate = null;
   keys.forEach(key => {
-    if (!fullyDone(store[key])) {
+    if (!fullyDone(key)) {
       running = 0;
       prevDate = null;
       return;
@@ -413,23 +429,32 @@ function lastNDays(n) {
 function completionRate(store, n) {
   const days = lastNDays(n);
   let total = 0;
+  let max = 0;
   days.forEach(d => {
-    total += countDone(store[dateKey(d)]);
+    const key = dateKey(d);
+    total += countDone(key);
+    max += activeHabits(key).length;
   });
-  const max = n * HABITS.length;
   return max === 0 ? 0 : Math.round((total / max) * 100);
 }
 
 function habitBreakdown(store, n) {
   const days = lastNDays(n);
-  return HABITS.map(h => {
+  const rows = [];
+  HABITS.forEach(h => {
     let count = 0;
+    let activeDays = 0;
     days.forEach(d => {
-      const s = store[dateKey(d)];
+      const key = dateKey(d);
+      if (!isActive(h, key)) return;
+      activeDays++;
+      const s = store[key];
       if (s && s[h.id]) count++;
     });
-    return { label: h.label, pct: Math.round((count / n) * 100) };
-  }).sort((a, b) => b.pct - a.pct);
+    if (activeDays === 0) return; // not active anywhere in this window
+    rows.push({ label: h.label, pct: Math.round((count / activeDays) * 100) });
+  });
+  return rows.sort((a, b) => b.pct - a.pct);
 }
 
 let store = loadStore();
@@ -438,16 +463,17 @@ let activeTab = 'today';
 
 function renderToday() {
   const dayState = store[todayKey] || {};
-  const doneCount = countDone(dayState);
+  const todayHabits = activeHabits(todayKey);
+  const doneCount = countDone(todayKey);
 
   document.getElementById('today-eyebrow').textContent =
     new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  document.getElementById('stat-today').textContent = doneCount + '/' + HABITS.length;
+  document.getElementById('stat-today').textContent = doneCount + '/' + todayHabits.length;
   document.getElementById('stat-streak').textContent = computeCurrentStreak(store);
 
   const list = document.getElementById('habit-list');
   list.innerHTML = '';
-  HABITS.forEach(h => {
+  todayHabits.forEach(h => {
     const done = !!dayState[h.id];
     const row = document.createElement('div');
     row.className = 'habit' + (done ? ' done' : '');
@@ -467,7 +493,7 @@ function renderToday() {
   strip.innerHTML = '';
   lastNDays(7).forEach(d => {
     const key = dateKey(d);
-    const full = fullyDone(store[key]);
+    const full = fullyDone(key);
     const pill = document.createElement('div');
     pill.className = 'day-pill' + (full ? ' full' : '');
     pill.innerHTML = '<div class="d">' + d.toLocaleDateString(undefined, { weekday: 'narrow' }) + '</div>' + d.getDate();
@@ -475,9 +501,9 @@ function renderToday() {
   });
 }
 
-function heatColor(count) {
-  if (count === 0) return 'var(--heat-0)';
-  const frac = count / HABITS.length;
+function heatColor(count, max) {
+  if (count === 0 || max === 0) return 'var(--heat-0)';
+  const frac = count / max;
   if (frac <= 0.25) return 'var(--heat-1)';
   if (frac <= 0.5) return 'var(--heat-2)';
   if (frac <= 0.75) return 'var(--heat-3)';
@@ -506,11 +532,13 @@ function renderStats() {
   const heatmap = document.getElementById('heatmap');
   heatmap.innerHTML = '';
   lastNDays(30).forEach(d => {
-    const count = countDone(store[dateKey(d)]);
+    const key = dateKey(d);
+    const count = countDone(key);
+    const max = activeHabits(key).length;
     const cell = document.createElement('div');
     cell.className = 'heat-cell';
-    cell.style.background = heatColor(count);
-    cell.title = d.toLocaleDateString() + ': ' + count + '/' + HABITS.length;
+    cell.style.background = heatColor(count, max);
+    cell.title = d.toLocaleDateString() + ': ' + count + '/' + max;
     heatmap.appendChild(cell);
   });
 }
