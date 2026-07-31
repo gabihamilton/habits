@@ -16,6 +16,11 @@
     --done-ink: #2F5C33;
     --accent: #3B5B92;
     --accent-soft: #EDF1F8;
+    --heat-0: #EDEAE1;
+    --heat-1: #CFE2CC;
+    --heat-2: #A9CDA4;
+    --heat-3: #7EB578;
+    --heat-4: #4E934B;
   }
   * { box-sizing: border-box; }
   body {
@@ -52,10 +57,36 @@
     color: var(--ink-soft);
     margin: 0;
   }
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin: 20px 0 20px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 4px;
+  }
+  .tab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 10px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+  }
+  .tab-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
   .stats {
     display: flex;
     gap: 10px;
-    margin: 20px 0;
+    margin: 0 0 20px;
   }
   .stat {
     flex: 1;
@@ -145,6 +176,63 @@
     color: var(--ink-soft);
     text-align: center;
   }
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 24px 0 10px;
+  }
+  .breakdown-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+  }
+  .breakdown-row .name {
+    width: 130px;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .breakdown-row .bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .breakdown-row .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+  }
+  .breakdown-row .pct {
+    width: 36px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .heat-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+  }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .heatmap-legend .heat-cell {
+    width: 10px;
+    height: 10px;
+  }
 </style>
 </head>
 <body>
@@ -155,20 +243,65 @@
     <p class="sub">Small, checkable wins — not a two-year countdown.</p>
   </header>
 
-  <div class="stats">
-    <div class="stat">
-      <div class="num" id="stat-today">0/9</div>
-      <div class="label">Today</div>
-    </div>
-    <div class="stat">
-      <div class="num" id="stat-streak">0</div>
-      <div class="label">Day streak</div>
-    </div>
+  <div class="tabs">
+    <button class="tab-btn active" id="tab-today-btn">Today</button>
+    <button class="tab-btn" id="tab-stats-btn">Stats</button>
   </div>
 
-  <div class="list" id="habit-list"></div>
+  <div id="view-today">
+    <div class="stats">
+      <div class="stat">
+        <div class="num" id="stat-today">0/9</div>
+        <div class="label">Today</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="stat-streak">0</div>
+        <div class="label">Day streak</div>
+      </div>
+    </div>
 
-  <nav class="week" id="week-strip"></nav>
+    <div class="list" id="habit-list"></div>
+
+    <nav class="week" id="week-strip"></nav>
+  </div>
+
+  <div id="view-stats" style="display: none;">
+    <div class="stats">
+      <div class="stat">
+        <div class="num" id="stat-current-streak">0</div>
+        <div class="label">Current streak</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="stat-longest-streak">0</div>
+        <div class="label">Longest streak</div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="num" id="stat-rate-7">0%</div>
+        <div class="label">Completion, last 7 days</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="stat-rate-30">0%</div>
+        <div class="label">Completion, last 30 days</div>
+      </div>
+    </div>
+
+    <p class="section-title">By habit (last 30 days)</p>
+    <div id="breakdown-list"></div>
+
+    <p class="section-title">Last 30 days</p>
+    <div class="heatmap" id="heatmap"></div>
+    <div class="heatmap-legend">
+      <span>Less</span>
+      <div class="heat-cell" style="background: var(--heat-0);"></div>
+      <div class="heat-cell" style="background: var(--heat-1);"></div>
+      <div class="heat-cell" style="background: var(--heat-2);"></div>
+      <div class="heat-cell" style="background: var(--heat-3);"></div>
+      <div class="heat-cell" style="background: var(--heat-4);"></div>
+      <span>More</span>
+    </div>
+  </div>
 
   <footer>Saved on this device only.</footer>
 </main>
@@ -204,12 +337,17 @@ function dateKey(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function fullyDone(dayState) {
-  if (!dayState) return false;
-  return HABITS.every(h => dayState[h.id]);
+function countDone(dayState) {
+  if (!dayState) return 0;
+  return HABITS.filter(h => dayState[h.id]).length;
 }
 
-function computeStreak(store) {
+function fullyDone(dayState) {
+  if (!dayState) return false;
+  return countDone(dayState) === HABITS.length;
+}
+
+function computeCurrentStreak(store) {
   let streak = 0;
   let cursor = new Date();
   while (true) {
@@ -224,17 +362,79 @@ function computeStreak(store) {
   return streak;
 }
 
+function computeLongestStreak(store) {
+  const keys = Object.keys(store).sort();
+  if (keys.length === 0) return 0;
+  let longest = 0;
+  let running = 0;
+  let prevDate = null;
+  keys.forEach(key => {
+    if (!fullyDone(store[key])) {
+      running = 0;
+      prevDate = null;
+      return;
+    }
+    const d = new Date(key + 'T00:00:00');
+    if (prevDate) {
+      const diffDays = Math.round((d - prevDate) / 86400000);
+      if (diffDays === 1) {
+        running++;
+      } else {
+        running = 1;
+      }
+    } else {
+      running = 1;
+    }
+    longest = Math.max(longest, running);
+    prevDate = d;
+  });
+  return longest;
+}
+
+function lastNDays(n) {
+  const days = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d);
+  }
+  return days;
+}
+
+function completionRate(store, n) {
+  const days = lastNDays(n);
+  let total = 0;
+  days.forEach(d => {
+    total += countDone(store[dateKey(d)]);
+  });
+  const max = n * HABITS.length;
+  return max === 0 ? 0 : Math.round((total / max) * 100);
+}
+
+function habitBreakdown(store, n) {
+  const days = lastNDays(n);
+  return HABITS.map(h => {
+    let count = 0;
+    days.forEach(d => {
+      const s = store[dateKey(d)];
+      if (s && s[h.id]) count++;
+    });
+    return { label: h.label, pct: Math.round((count / n) * 100) };
+  }).sort((a, b) => b.pct - a.pct);
+}
+
 let store = loadStore();
 const todayKey = dateKey(new Date());
+let activeTab = 'today';
 
-function render() {
+function renderToday() {
   const dayState = store[todayKey] || {};
-  const doneCount = HABITS.filter(h => dayState[h.id]).length;
+  const doneCount = countDone(dayState);
 
   document.getElementById('today-eyebrow').textContent =
     new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   document.getElementById('stat-today').textContent = doneCount + '/' + HABITS.length;
-  document.getElementById('stat-streak').textContent = computeStreak(store);
+  document.getElementById('stat-streak').textContent = computeCurrentStreak(store);
 
   const list = document.getElementById('habit-list');
   list.innerHTML = '';
@@ -248,26 +448,83 @@ function render() {
       s[h.id] = !s[h.id];
       store[todayKey] = s;
       saveStore(store);
-      render();
+      renderToday();
+      if (activeTab === 'stats') renderStats();
     });
     list.appendChild(row);
   });
 
   const strip = document.getElementById('week-strip');
   strip.innerHTML = '';
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
+  lastNDays(7).forEach(d => {
     const key = dateKey(d);
     const full = fullyDone(store[key]);
     const pill = document.createElement('div');
     pill.className = 'day-pill' + (full ? ' full' : '');
     pill.innerHTML = '<div class="d">' + d.toLocaleDateString(undefined, { weekday: 'narrow' }) + '</div>' + d.getDate();
     strip.appendChild(pill);
-  }
+  });
 }
 
-render();
+function heatColor(count) {
+  if (count === 0) return 'var(--heat-0)';
+  const frac = count / HABITS.length;
+  if (frac <= 0.25) return 'var(--heat-1)';
+  if (frac <= 0.5) return 'var(--heat-2)';
+  if (frac <= 0.75) return 'var(--heat-3)';
+  return 'var(--heat-4)';
+}
+
+function renderStats() {
+  document.getElementById('stat-current-streak').textContent = computeCurrentStreak(store);
+  document.getElementById('stat-longest-streak').textContent = computeLongestStreak(store);
+  document.getElementById('stat-rate-7').textContent = completionRate(store, 7) + '%';
+  document.getElementById('stat-rate-30').textContent = completionRate(store, 30) + '%';
+
+  const breakdown = habitBreakdown(store, 30);
+  const list = document.getElementById('breakdown-list');
+  list.innerHTML = '';
+  breakdown.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'breakdown-row';
+    row.innerHTML =
+      '<div class="name">' + item.label + '</div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + item.pct + '%;"></div></div>' +
+      '<div class="pct">' + item.pct + '%</div>';
+    list.appendChild(row);
+  });
+
+  const heatmap = document.getElementById('heatmap');
+  heatmap.innerHTML = '';
+  lastNDays(30).forEach(d => {
+    const count = countDone(store[dateKey(d)]);
+    const cell = document.createElement('div');
+    cell.className = 'heat-cell';
+    cell.style.background = heatColor(count);
+    cell.title = d.toLocaleDateString() + ': ' + count + '/' + HABITS.length;
+    heatmap.appendChild(cell);
+  });
+}
+
+document.getElementById('tab-today-btn').addEventListener('click', () => {
+  activeTab = 'today';
+  document.getElementById('tab-today-btn').classList.add('active');
+  document.getElementById('tab-stats-btn').classList.remove('active');
+  document.getElementById('view-today').style.display = 'block';
+  document.getElementById('view-stats').style.display = 'none';
+  renderToday();
+});
+
+document.getElementById('tab-stats-btn').addEventListener('click', () => {
+  activeTab = 'stats';
+  document.getElementById('tab-stats-btn').classList.add('active');
+  document.getElementById('tab-today-btn').classList.remove('active');
+  document.getElementById('view-stats').style.display = 'block';
+  document.getElementById('view-today').style.display = 'none';
+  renderStats();
+});
+
+renderToday();
 </script>
 </body>
 </html>
