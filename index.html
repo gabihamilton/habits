@@ -155,7 +155,7 @@
   nav.week {
     display: flex;
     gap: 6px;
-    margin: 28px 0 8px;
+    margin: 0 0 8px;
   }
   .day-pill {
     flex: 1;
@@ -168,8 +168,35 @@
     color: var(--ink-soft);
   }
   .day-pill .d { font-weight: 600; color: var(--ink); font-size: 13px; }
+  .day-pill { cursor: pointer; }
   .day-pill.full { background: var(--accent-soft); border-color: var(--accent); }
   .day-pill.full .d { color: var(--accent); }
+  .day-pill.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .week-hint {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 28px 0 8px;
+    text-align: center;
+  }
+  #viewing-banner {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+  }
+  #viewing-banner .back { font-weight: 600; }
   footer {
     margin-top: 24px;
     font-size: 12px;
@@ -252,7 +279,7 @@
     <div class="stats">
       <div class="stat">
         <div class="num" id="stat-today">0/9</div>
-        <div class="label">Today</div>
+        <div class="label" id="stat-today-label">Today</div>
       </div>
       <div class="stat">
         <div class="num" id="stat-streak">0</div>
@@ -260,8 +287,11 @@
       </div>
     </div>
 
+    <button id="viewing-banner" style="display: none;"></button>
+
     <div class="list" id="habit-list"></div>
 
+    <p class="week-hint">Tap a day to fill in anything you missed.</p>
     <nav class="week" id="week-strip"></nav>
   </div>
 
@@ -465,29 +495,49 @@ function habitBreakdown(store, n) {
 
 let store = loadStore();
 const todayKey = dateKey(new Date());
+let selectedKey = todayKey; // which day the habit list is editing
 let activeTab = 'today';
 
+function dateFromKey(key) {
+  return new Date(key + 'T00:00:00'); // parse as local midnight
+}
+
 function renderToday() {
-  const dayState = store[todayKey] || {};
-  const todayHabits = activeHabits(todayKey);
-  const doneCount = countDone(todayKey);
+  const viewingToday = selectedKey === todayKey;
+  const selDate = dateFromKey(selectedKey);
+  const dayState = store[selectedKey] || {};
+  const dayHabits = activeHabits(selectedKey);
+  const doneCount = countDone(selectedKey);
 
   document.getElementById('today-eyebrow').textContent =
-    new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  document.getElementById('stat-today').textContent = doneCount + '/' + todayHabits.length;
+    selDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  document.getElementById('stat-today').textContent = doneCount + '/' + dayHabits.length;
+  document.getElementById('stat-today-label').textContent =
+    viewingToday ? 'Today' : selDate.toLocaleDateString(undefined, { weekday: 'short' });
   document.getElementById('stat-streak').textContent = computeCurrentStreak(store);
+
+  const banner = document.getElementById('viewing-banner');
+  if (viewingToday) {
+    banner.style.display = 'none';
+  } else {
+    banner.style.display = 'flex';
+    banner.innerHTML =
+      '<span>Editing ' +
+      selDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }) +
+      '</span><span class="back">← Today</span>';
+  }
 
   const list = document.getElementById('habit-list');
   list.innerHTML = '';
-  todayHabits.forEach(h => {
+  dayHabits.forEach(h => {
     const done = !!dayState[h.id];
     const row = document.createElement('div');
     row.className = 'habit' + (done ? ' done' : '');
     row.innerHTML = '<div class="check">' + (done ? '&#10003;' : '') + '</div><div class="label">' + h.label + '</div>';
     row.addEventListener('click', () => {
-      const s = store[todayKey] || {};
+      const s = store[selectedKey] || {};
       s[h.id] = !s[h.id];
-      store[todayKey] = s;
+      store[selectedKey] = s;
       saveStore(store);
       renderToday();
       if (activeTab === 'stats') renderStats();
@@ -501,8 +551,12 @@ function renderToday() {
     const key = dateKey(d);
     const full = fullyDone(key);
     const pill = document.createElement('div');
-    pill.className = 'day-pill' + (full ? ' full' : '');
+    pill.className = 'day-pill' + (full ? ' full' : '') + (key === selectedKey ? ' selected' : '');
     pill.innerHTML = '<div class="d">' + d.toLocaleDateString(undefined, { weekday: 'narrow' }) + '</div>' + d.getDate();
+    pill.addEventListener('click', () => {
+      selectedKey = key;
+      renderToday();
+    });
     strip.appendChild(pill);
   });
 }
@@ -549,8 +603,14 @@ function renderStats() {
   });
 }
 
+document.getElementById('viewing-banner').addEventListener('click', () => {
+  selectedKey = todayKey;
+  renderToday();
+});
+
 document.getElementById('tab-today-btn').addEventListener('click', () => {
   activeTab = 'today';
+  selectedKey = todayKey;
   document.getElementById('tab-today-btn').classList.add('active');
   document.getElementById('tab-stats-btn').classList.remove('active');
   document.getElementById('view-today').style.display = 'block';
