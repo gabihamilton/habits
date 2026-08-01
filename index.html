@@ -356,7 +356,13 @@ function saveStore(store) {
 }
 
 function dateKey(d) {
-  return d.toISOString().slice(0, 10);
+  // Use the LOCAL calendar date, not UTC. toISOString() converts to UTC, which
+  // rolls the date forward in the evening for negative-offset zones (e.g. US
+  // Central), filing an evening check-off under tomorrow.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
 
 function countDone(key) {
