@@ -1036,7 +1036,7 @@ function renderEnergy() {
 function drawWeightChart(series) {
   const el = document.getElementById('weight-chart');
   if (!series || series.length < 2) { el.innerHTML = ''; return; }
-  const W = 480, H = 200, padL = 34, padR = 12, padT = 12, padB = 22;
+  const W = 480, H = 210, padL = 30, padR = 14, padT = 12, padB = 34;
   const xs = series.map(p => dayNumber(p.key));
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const vals = series.flatMap(p => [p.raw, p.trend]);
@@ -1045,20 +1045,42 @@ function drawWeightChart(series) {
   minY -= padY; maxY += padY;
   const sx = x => padL + (maxX === minX ? 0.5 : (x - minX) / (maxX - minX)) * (W - padL - padR);
   const sy = y => padT + (1 - (y - minY) / (maxY - minY)) * (H - padT - padB);
+
+  // axes: faint baseline + top gridline
+  const axis =
+    '<line x1="' + padL + '" y1="' + sy(minY).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(minY).toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>' +
+    '<line x1="' + padL + '" y1="' + sy(maxY).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(maxY).toFixed(1) + '" stroke="var(--line)" stroke-width="1" opacity="0.5"/>';
+
   const dots = series.map(p =>
     '<circle cx="' + sx(dayNumber(p.key)).toFixed(1) + '" cy="' + sy(p.raw).toFixed(1) +
-    '" r="2.5" fill="var(--ink-soft)" opacity="0.45"/>').join('');
+    '" r="2.3" fill="var(--ink-soft)" opacity="0.4"/>').join('');
   const trendPath = series.map((p, i) =>
     (i ? 'L' : 'M') + sx(dayNumber(p.key)).toFixed(1) + ' ' + sy(p.trend).toFixed(1)).join(' ');
+
+  // y-axis: label the top and bottom of the real data range (lb)
   const topV = maxY - padY, botV = minY + padY;
   const yLabels =
     '<text x="2" y="' + (sy(topV) + 3).toFixed(1) + '" font-size="10" fill="var(--ink-soft)">' + topV.toFixed(0) + '</text>' +
     '<text x="2" y="' + (sy(botV) + 3).toFixed(1) + '" font-size="10" fill="var(--ink-soft)">' + botV.toFixed(0) + '</text>';
+
+  // x-axis: 4 evenly-spaced date ticks
+  const start = dateFromKey(series[0].key);
+  const nTicks = Math.min(4, maxX - minX + 1);
+  let xLabels = '';
+  for (let i = 0; i < nTicks; i++) {
+    const off = Math.round((nTicks === 1 ? 0 : i / (nTicks - 1)) * (maxX - minX));
+    const d = new Date(start.getTime() + off * 86400000);
+    const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const anchor = i === 0 ? 'start' : (i === nTicks - 1 ? 'end' : 'middle');
+    xLabels += '<text x="' + sx(minX + off).toFixed(1) + '" y="' + (H - 8) +
+      '" font-size="10" fill="var(--ink-soft)" text-anchor="' + anchor + '">' + label + '</text>';
+  }
+
   el.innerHTML =
     '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
-    dots +
+    axis + dots +
     '<path d="' + trendPath + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>' +
-    yLabels +
+    yLabels + xLabels +
     '</svg>';
 }
 
