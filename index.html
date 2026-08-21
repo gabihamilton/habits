@@ -260,6 +260,78 @@
     width: 10px;
     height: 10px;
   }
+  .energy-status {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 16px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .energy-status.deficit { background: var(--accent-soft); border-color: var(--accent); }
+  .energy-status.maintenance { background: var(--done-bg); border-color: var(--done-line); }
+  .energy-status.surplus { background: #FBEEE4; border-color: #D8A15E; }
+  .energy-status .verdict {
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+  .energy-status.deficit .verdict { color: var(--accent); }
+  .energy-status.maintenance .verdict { color: var(--done-ink); }
+  .energy-status.surplus .verdict { color: #8A5A1E; }
+  .energy-status .verdict-sub {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-top: 4px;
+  }
+  #weight-chart svg { width: 100%; height: auto; display: block; }
+  .import-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    margin-top: 24px;
+    padding: 18px 16px;
+    border: 1.5px dashed var(--line);
+    border-radius: 12px;
+    background: var(--card);
+    cursor: pointer;
+    text-align: center;
+  }
+  .import-box .import-title { font-size: 14px; font-weight: 600; color: var(--accent); }
+  .import-box .import-hint { font-size: 12px; color: var(--ink-soft); }
+  .import-log {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 10px 0 0;
+    white-space: pre-line;
+    text-align: center;
+  }
+  .import-window {
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-top: 18px;
+  }
+  .import-window select {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+  }
+  .link-btn {
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 12px;
+  }
 </style>
 </head>
 <body>
@@ -273,6 +345,7 @@
   <div class="tabs">
     <button class="tab-btn active" id="tab-today-btn">Today</button>
     <button class="tab-btn" id="tab-stats-btn">Stats</button>
+    <button class="tab-btn" id="tab-weight-btn">Weight</button>
   </div>
 
   <div id="view-today">
@@ -331,6 +404,54 @@
       <div class="heat-cell" style="background: var(--heat-4);"></div>
       <span>More</span>
     </div>
+  </div>
+
+  <div id="view-weight" style="display: none;">
+    <div id="energy-status" class="energy-status">
+      <div class="verdict" id="energy-verdict">No data yet</div>
+      <div class="verdict-sub" id="energy-verdict-sub">Import a Cronometer CSV to get started.</div>
+    </div>
+
+    <div class="stats" id="energy-stats" style="display: none;">
+      <div class="stat">
+        <div class="num" id="energy-tdee">—</div>
+        <div class="label">Est. maintenance</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="energy-intake">—</div>
+        <div class="label">Avg intake</div>
+      </div>
+    </div>
+    <div class="stats" id="energy-stats2" style="display: none;">
+      <div class="stat">
+        <div class="num" id="energy-trend">—</div>
+        <div class="label">Weight trend</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="energy-balance">—</div>
+        <div class="label">Daily balance</div>
+      </div>
+    </div>
+
+    <p class="section-title" id="weight-chart-title" style="display: none;">Weight trend</p>
+    <div id="weight-chart"></div>
+
+    <label class="import-box" id="import-box">
+      <input type="file" id="csv-input" accept=".csv,text/csv" multiple hidden>
+      <span class="import-title">Import Cronometer CSV</span>
+      <span class="import-hint">Tap to pick your Daily Nutrition and/or Biometrics export(s)</span>
+    </label>
+    <p class="import-log" id="import-log"></p>
+    <p class="import-window">
+      Analysis window:
+      <select id="energy-window">
+        <option value="10">10 days</option>
+        <option value="14" selected>14 days</option>
+        <option value="21">21 days</option>
+        <option value="28">28 days</option>
+      </select>
+      <button id="clear-energy" class="link-btn">Clear data</button>
+    </p>
   </div>
 
   <footer>Saved on this device only.</footer>
@@ -610,23 +731,299 @@ document.getElementById('viewing-banner').addEventListener('click', () => {
   renderToday();
 });
 
-document.getElementById('tab-today-btn').addEventListener('click', () => {
-  activeTab = 'today';
-  selectedKey = todayKey;
-  document.getElementById('tab-today-btn').classList.add('active');
-  document.getElementById('tab-stats-btn').classList.remove('active');
-  document.getElementById('view-today').style.display = 'block';
-  document.getElementById('view-stats').style.display = 'none';
-  renderToday();
+// ---------- Energy / weight tracking (Cronometer CSV import) ----------
+const ENERGY_KEY = 'gabi-energy-data';
+const KCAL_PER_LB = 3500;
+const EMA_ALPHA = 0.1;      // weight-trend smoothing
+const MAINTAIN_BAND = 0.2;  // lb/week dead-band counted as "maintenance"
+
+function loadEnergy() {
+  try { return JSON.parse(localStorage.getItem(ENERGY_KEY) || '{}'); }
+  catch (e) { return {}; }
+}
+function saveEnergy(data) {
+  localStorage.setItem(ENERGY_KEY, JSON.stringify(data));
+}
+// energyData: { 'YYYY-MM-DD': { intake: kcal, weight: lb } }
+let energyData = loadEnergy();
+
+// RFC-4180-ish CSV parser -> array of row objects keyed by header.
+function parseCSV(text) {
+  text = text.replace(/^﻿/, ''); // strip BOM
+  const rows = [];
+  let field = '', row = [], inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n') {
+      row.push(field); rows.push(row); row = []; field = '';
+    } else if (c !== '\r') {
+      field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1)
+    .filter(r => r.some(v => v.trim() !== ''))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (r[i] || '').trim(); });
+      return obj;
+    });
+}
+
+function findHeader(headers, regexes) {
+  for (const re of regexes) {
+    const h = headers.find(x => re.test(x));
+    if (h) return h;
+  }
+  return null;
+}
+
+function toISO(s) {
+  s = (s || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); // Cronometer uses YYYY-MM-DD
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  const d = new Date(s);
+  return isNaN(d) ? null : dateKey(d);
+}
+
+// Import one CSV file's text, auto-detecting its export type. Merges into energyData.
+function importCSVText(text) {
+  const rows = parseCSV(text);
+  if (!rows.length) return { type: 'empty', added: 0 };
+  const headers = Object.keys(rows[0]);
+  const dateH = findHeader(headers, [/^date$/i, /^day$/i, /date/i, /day/i]);
+  const metricH = findHeader(headers, [/^metric$/i, /metric/i]);
+  const amountH = findHeader(headers, [/^amount$/i, /amount/i]);
+
+  // Biometrics export: Metric + Amount columns; keep the Weight rows.
+  if (metricH && amountH) {
+    const unitH = findHeader(headers, [/^unit$/i, /unit/i]);
+    let added = 0;
+    rows.forEach(r => {
+      if (!/weight/i.test(r[metricH])) return;
+      const key = toISO(r[dateH]);
+      const amt = parseFloat(r[amountH]);
+      if (!key || isNaN(amt)) return;
+      const unit = (unitH ? r[unitH] : '').toLowerCase();
+      const lb = unit.includes('kg') ? amt * 2.2046226218 : amt;
+      energyData[key] = Object.assign({}, energyData[key], { weight: lb });
+      added++;
+    });
+    return { type: 'biometrics', added };
+  }
+
+  // Daily Nutrition export: has an energy/kcal column.
+  const energyH = findHeader(headers, [/energy.*kcal/i, /energy/i, /calorie/i, /kcal/i]);
+  if (dateH && energyH) {
+    let added = 0;
+    rows.forEach(r => {
+      const key = toISO(r[dateH]);
+      const kcal = parseFloat((r[energyH] || '').replace(/,/g, ''));
+      if (!key || isNaN(kcal) || kcal <= 0) return;
+      energyData[key] = Object.assign({}, energyData[key], { intake: kcal });
+      added++;
+    });
+    return { type: 'nutrition', added };
+  }
+  return { type: 'unknown', added: 0 };
+}
+
+// Local integer day index, for spacing points and regression.
+function dayNumber(key) {
+  return Math.round(dateFromKey(key).getTime() / 86400000);
+}
+
+// Exponentially-smoothed weight trend over all weigh-ins, sorted by date.
+function weightTrendSeries() {
+  const keys = Object.keys(energyData)
+    .filter(k => typeof energyData[k].weight === 'number')
+    .sort();
+  let trend = null;
+  return keys.map(k => {
+    const w = energyData[k].weight;
+    trend = (trend === null) ? w : trend + EMA_ALPHA * (w - trend);
+    return { key: k, raw: w, trend: trend };
+  });
+}
+
+// Adaptive TDEE: derive maintenance from real intake vs. trend-weight change.
+function analyzeEnergy(windowDays) {
+  const series = weightTrendSeries();
+  if (series.length < 2) return null;
+  const lastDay = dayNumber(series[series.length - 1].key);
+  const cutoff = lastDay - windowDays + 1;
+  const wpts = series.filter(p => dayNumber(p.key) >= cutoff);
+  const intakes = Object.keys(energyData)
+    .filter(k => typeof energyData[k].intake === 'number' && dayNumber(k) >= cutoff)
+    .map(k => energyData[k].intake);
+  if (wpts.length < 3 || intakes.length < 3) {
+    return { insufficient: true, weightDays: wpts.length, intakeDays: intakes.length, series };
+  }
+  // Least-squares slope of trend weight vs. day index (lb/day).
+  const xs = wpts.map(p => dayNumber(p.key));
+  const ys = wpts.map(p => p.trend);
+  const n = xs.length;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+  const slopePerDay = den === 0 ? 0 : num / den;
+  const lbPerWeek = slopePerDay * 7;
+  const avgIntake = intakes.reduce((a, b) => a + b, 0) / intakes.length;
+  const balancePerDay = slopePerDay * KCAL_PER_LB; // + surplus, − deficit
+  const tdee = avgIntake - balancePerDay;
+  let status = 'maintenance';
+  if (lbPerWeek <= -MAINTAIN_BAND) status = 'deficit';
+  else if (lbPerWeek >= MAINTAIN_BAND) status = 'surplus';
+  return { insufficient: false, status, lbPerWeek, avgIntake, balancePerDay, tdee,
+           weightDays: wpts.length, intakeDays: intakes.length, series };
+}
+
+function signed(n, digits, unit) {
+  const v = digits != null ? Math.abs(n).toFixed(digits) : Math.abs(Math.round(n)).toLocaleString();
+  return (n >= 0 ? '+' : '−') + v + (unit || '');
+}
+
+function renderEnergy() {
+  const windowDays = parseInt(document.getElementById('energy-window').value, 10) || 14;
+  const res = analyzeEnergy(windowDays);
+  const statusEl = document.getElementById('energy-status');
+  const verdict = document.getElementById('energy-verdict');
+  const sub = document.getElementById('energy-verdict-sub');
+  const stats1 = document.getElementById('energy-stats');
+  const stats2 = document.getElementById('energy-stats2');
+  const chartTitle = document.getElementById('weight-chart-title');
+  const chart = document.getElementById('weight-chart');
+
+  statusEl.className = 'energy-status';
+  stats1.style.display = 'none';
+  stats2.style.display = 'none';
+
+  if (!res) {
+    verdict.textContent = 'No data yet';
+    sub.textContent = 'Import a Cronometer CSV to get started.';
+    chartTitle.style.display = 'none';
+    chart.innerHTML = '';
+    return;
+  }
+  if (res.insufficient) {
+    verdict.textContent = 'Need more data';
+    sub.textContent = res.weightDays + ' weigh-ins and ' + res.intakeDays +
+      ' logged days in the last ' + windowDays + ' days — need at least 3 of each.';
+  } else {
+    const labels = { deficit: 'Deficit', maintenance: 'Maintenance', surplus: 'Surplus' };
+    statusEl.classList.add(res.status);
+    verdict.textContent = labels[res.status];
+    sub.textContent = 'Trend ' + signed(res.lbPerWeek, 2, ' lb/week') + ' over ' + windowDays + ' days';
+    stats1.style.display = 'flex';
+    stats2.style.display = 'flex';
+    document.getElementById('energy-tdee').textContent = Math.round(res.tdee).toLocaleString() + ' kcal';
+    document.getElementById('energy-intake').textContent = Math.round(res.avgIntake).toLocaleString() + ' kcal';
+    document.getElementById('energy-trend').textContent = signed(res.lbPerWeek, 2, ' lb/wk');
+    document.getElementById('energy-balance').textContent = signed(res.balancePerDay, null, ' kcal');
+  }
+  chartTitle.style.display = 'block';
+  drawWeightChart(res.series);
+}
+
+function drawWeightChart(series) {
+  const el = document.getElementById('weight-chart');
+  if (!series || series.length < 2) { el.innerHTML = ''; return; }
+  const W = 480, H = 200, padL = 34, padR = 12, padT = 12, padB = 22;
+  const xs = series.map(p => dayNumber(p.key));
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const vals = series.flatMap(p => [p.raw, p.trend]);
+  let minY = Math.min(...vals), maxY = Math.max(...vals);
+  const padY = (maxY - minY) * 0.15 || 1;
+  minY -= padY; maxY += padY;
+  const sx = x => padL + (maxX === minX ? 0.5 : (x - minX) / (maxX - minX)) * (W - padL - padR);
+  const sy = y => padT + (1 - (y - minY) / (maxY - minY)) * (H - padT - padB);
+  const dots = series.map(p =>
+    '<circle cx="' + sx(dayNumber(p.key)).toFixed(1) + '" cy="' + sy(p.raw).toFixed(1) +
+    '" r="2.5" fill="var(--ink-soft)" opacity="0.45"/>').join('');
+  const trendPath = series.map((p, i) =>
+    (i ? 'L' : 'M') + sx(dayNumber(p.key)).toFixed(1) + ' ' + sy(p.trend).toFixed(1)).join(' ');
+  const topV = maxY - padY, botV = minY + padY;
+  const yLabels =
+    '<text x="2" y="' + (sy(topV) + 3).toFixed(1) + '" font-size="10" fill="var(--ink-soft)">' + topV.toFixed(0) + '</text>' +
+    '<text x="2" y="' + (sy(botV) + 3).toFixed(1) + '" font-size="10" fill="var(--ink-soft)">' + botV.toFixed(0) + '</text>';
+  el.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
+    dots +
+    '<path d="' + trendPath + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>' +
+    yLabels +
+    '</svg>';
+}
+
+document.getElementById('csv-input').addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const log = document.getElementById('import-log');
+  const msgs = [];
+  let pending = files.length;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const res = importCSVText(String(reader.result));
+        if (res.type === 'biometrics') msgs.push(file.name + ': ' + res.added + ' weigh-ins');
+        else if (res.type === 'nutrition') msgs.push(file.name + ': ' + res.added + ' days of intake');
+        else if (res.type === 'empty') msgs.push(file.name + ': empty file');
+        else msgs.push(file.name + ': could not detect Cronometer columns');
+      } catch (err) {
+        msgs.push(file.name + ': error reading file');
+      }
+      if (--pending === 0) {
+        saveEnergy(energyData);
+        log.textContent = msgs.join('\n');
+        renderEnergy();
+      }
+    };
+    reader.readAsText(file);
+  });
+  e.target.value = ''; // let the same file be re-picked later
 });
 
-document.getElementById('tab-stats-btn').addEventListener('click', () => {
-  activeTab = 'stats';
-  document.getElementById('tab-stats-btn').classList.add('active');
-  document.getElementById('tab-today-btn').classList.remove('active');
-  document.getElementById('view-stats').style.display = 'block';
-  document.getElementById('view-today').style.display = 'none';
-  renderStats();
+document.getElementById('energy-window').addEventListener('change', renderEnergy);
+
+document.getElementById('clear-energy').addEventListener('click', () => {
+  if (!confirm('Clear all imported weight & calorie data on this device?')) return;
+  energyData = {};
+  saveEnergy(energyData);
+  document.getElementById('import-log').textContent = '';
+  renderEnergy();
+});
+
+const TABS = [
+  { name: 'today', btn: 'tab-today-btn', view: 'view-today', render: renderToday },
+  { name: 'stats', btn: 'tab-stats-btn', view: 'view-stats', render: renderStats },
+  { name: 'weight', btn: 'tab-weight-btn', view: 'view-weight', render: renderEnergy },
+];
+
+function showTab(name) {
+  activeTab = name;
+  if (name === 'today') selectedKey = todayKey;
+  TABS.forEach(t => {
+    const active = t.name === name;
+    document.getElementById(t.btn).classList.toggle('active', active);
+    document.getElementById(t.view).style.display = active ? 'block' : 'none';
+    if (active) t.render();
+  });
+}
+
+TABS.forEach(t => {
+  document.getElementById(t.btn).addEventListener('click', () => showTab(t.name));
 });
 
 renderToday();
