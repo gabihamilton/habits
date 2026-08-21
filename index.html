@@ -781,8 +781,10 @@ async function syncFromCloud() {
     rows.forEach(r => {
       if (!r.date) return;
       const next = Object.assign({}, energyData[r.date]);
-      if (r.weight_lb != null) next.weight = Number(r.weight_lb);
-      if (r.intake_kcal != null) next.intake = Number(r.intake_kcal);
+      // Treat 0/blank as "no reading" — the backfill Shortcut sends 0 for days
+      // with no weigh-in or no logged food, and those shouldn't count.
+      if (r.weight_lb != null && Number(r.weight_lb) > 0) next.weight = Number(r.weight_lb);
+      if (r.intake_kcal != null && Number(r.intake_kcal) > 0) next.intake = Number(r.intake_kcal);
       energyData[r.date] = next;
       merged++;
     });
