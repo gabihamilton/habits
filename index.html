@@ -457,6 +457,9 @@
       <span class="import-hint">Tap to pick your Daily Nutrition and/or Biometrics export(s)</span>
     </label>
     <p class="import-log" id="import-log"></p>
+    <p style="text-align: center; margin: 8px 0 0;">
+      <button id="push-cloud" class="link-btn" style="margin-left: 0;">Push imported history to cloud</button>
+    </p>
     <p class="import-window">
       Analysis window:
       <select id="energy-window">
@@ -799,6 +802,43 @@ async function syncFromCloud() {
   }
 }
 
+// Upload locally-held (e.g. CSV-imported) history up to Supabase so it's durable.
+// Weight and intake go in separate batches so a weight-only day never nulls out
+// an existing intake column (and vice-versa) on the merge-duplicates upsert.
+async function pushBatch(rows) {
+  if (!rows.length) return;
+  const res = await fetch(SUPABASE_URL + '/rest/v1/health_daily', {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+}
+
+async function pushToCloud() {
+  const logEl = document.getElementById('import-log');
+  const keys = Object.keys(energyData);
+  const weightRows = keys.filter(k => typeof energyData[k].weight === 'number')
+    .map(k => ({ date: k, weight_lb: energyData[k].weight }));
+  const intakeRows = keys.filter(k => typeof energyData[k].intake === 'number')
+    .map(k => ({ date: k, intake_kcal: energyData[k].intake }));
+  if (!weightRows.length && !intakeRows.length) {
+    if (logEl) logEl.textContent = 'Nothing to push yet — import a CSV first.';
+    return;
+  }
+  if (logEl) logEl.textContent = 'Uploading to cloud…';
+  try {
+    await pushBatch(weightRows);
+    await pushBatch(intakeRows);
+    if (logEl) logEl.textContent = 'Pushed ' + keys.length + ' days to Supabase.';
+  } catch (e) {
+    if (logEl) logEl.textContent = 'Push failed: ' + e.message;
+  }
+}
+
 // RFC-4180-ish CSV parser -> array of row objects keyed by header.
 function parseCSV(text) {
   text = text.replace(/^﻿/, ''); // strip BOM
@@ -1050,6 +1090,8 @@ document.getElementById('csv-input').addEventListener('change', (e) => {
 document.getElementById('energy-window').addEventListener('change', renderEnergy);
 
 document.getElementById('sync-now').addEventListener('click', syncFromCloud);
+
+document.getElementById('push-cloud').addEventListener('click', pushToCloud);
 
 document.getElementById('clear-energy').addEventListener('click', () => {
   if (!confirm('Clear all imported weight & calorie data on this device?')) return;
