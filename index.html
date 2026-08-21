@@ -285,6 +285,21 @@
     margin-top: 4px;
   }
   #weight-chart svg { width: 100%; height: auto; display: block; }
+  .chart-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 24px 0 10px;
+  }
+  .chart-head select {
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+  }
   .import-box {
     display: flex;
     flex-direction: column;
@@ -448,7 +463,16 @@
       </div>
     </div>
 
-    <p class="section-title" id="weight-chart-title" style="display: none;">Weight trend</p>
+    <div class="chart-head" id="weight-chart-title" style="display: none;">
+      <span class="section-title" style="margin: 0;">Weight trend</span>
+      <select id="chart-range">
+        <option value="30">30 days</option>
+        <option value="90" selected>90 days</option>
+        <option value="180">6 months</option>
+        <option value="365">1 year</option>
+        <option value="0">All time</option>
+      </select>
+    </div>
     <div id="weight-chart"></div>
 
     <label class="import-box" id="import-box">
@@ -1033,9 +1057,19 @@ function renderEnergy() {
   drawWeightChart(res.series);
 }
 
-function drawWeightChart(series) {
+function drawWeightChart(fullSeries) {
   const el = document.getElementById('weight-chart');
-  if (!series || series.length < 2) { el.innerHTML = ''; return; }
+  if (!fullSeries || fullSeries.length < 2) { el.innerHTML = ''; return; }
+  // Clip to the selected chart range (0 = all time). Trend values keep their
+  // full-history smoothing; we just narrow the visible window.
+  const rangeEl = document.getElementById('chart-range');
+  const range = rangeEl ? parseInt(rangeEl.value, 10) : 0;
+  let series = fullSeries;
+  if (range > 0) {
+    const lastDay = dayNumber(fullSeries[fullSeries.length - 1].key);
+    series = fullSeries.filter(p => dayNumber(p.key) >= lastDay - range + 1);
+    if (series.length < 2) series = fullSeries; // too few in range — show all
+  }
   const W = 480, H = 210, padL = 30, padR = 14, padT = 12, padB = 34;
   const xs = series.map(p => dayNumber(p.key));
   const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -1114,6 +1148,7 @@ document.getElementById('csv-input').addEventListener('change', (e) => {
 });
 
 document.getElementById('energy-window').addEventListener('change', renderEnergy);
+document.getElementById('chart-range').addEventListener('change', renderEnergy);
 
 document.getElementById('sync-now').addEventListener('click', syncFromCloud);
 
