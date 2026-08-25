@@ -970,9 +970,21 @@ function weightTrendSeries() {
     .filter(k => typeof energyData[k].weight === 'number')
     .sort();
   let trend = null;
+  let prevDay = null;
   return keys.map(k => {
     const w = energyData[k].weight;
-    trend = (trend === null) ? w : trend + EMA_ALPHA * (w - trend);
+    const day = dayNumber(k);
+    if (trend === null) {
+      trend = w;
+    } else {
+      // Calendar-day-aware EMA: scale the nudge by days elapsed since the last
+      // weigh-in, so a reading after a gap catches up appropriately. For a
+      // 1-day gap this is exactly EMA_ALPHA.
+      const gap = Math.max(1, day - prevDay);
+      const factor = 1 - Math.pow(1 - EMA_ALPHA, gap);
+      trend = trend + factor * (w - trend);
+    }
+    prevDay = day;
     return { key: k, raw: w, trend: trend };
   });
 }
