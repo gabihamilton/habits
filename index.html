@@ -285,6 +285,50 @@
     margin-top: 4px;
   }
   #weight-chart svg { width: 100%; height: auto; display: block; }
+  .manual-entry {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .manual-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+  }
+  .manual-row + .manual-row { border-top: 1px solid var(--line); }
+  .manual-row label { font-size: 14px; color: var(--ink-soft); }
+  .manual-row input {
+    font-family: inherit;
+    font-size: 15px;
+    text-align: right;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    max-width: 55%;
+  }
+  .manual-save-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .manual-status {
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-align: center;
+    margin: 8px 0 0;
+    min-height: 14px;
+  }
   .chart-head {
     display: flex;
     align-items: center;
@@ -474,6 +518,24 @@
       </select>
     </div>
     <div id="weight-chart"></div>
+
+    <p class="section-title">Add / edit a day</p>
+    <div class="manual-entry">
+      <div class="manual-row">
+        <label for="manual-date">Date</label>
+        <input type="date" id="manual-date">
+      </div>
+      <div class="manual-row">
+        <label for="manual-weight">Weight (lb)</label>
+        <input type="number" id="manual-weight" inputmode="decimal" step="0.1" placeholder="optional">
+      </div>
+      <div class="manual-row">
+        <label for="manual-intake">Calories</label>
+        <input type="number" id="manual-intake" inputmode="numeric" placeholder="from Cronometer">
+      </div>
+      <button id="manual-save" class="manual-save-btn">Save</button>
+      <p class="manual-status" id="manual-status"></p>
+    </div>
 
     <label class="import-box" id="import-box">
       <input type="file" id="csv-input" accept=".csv,text/csv" multiple hidden>
@@ -867,6 +929,37 @@ async function pushToCloud() {
   }
 }
 
+// Manually enter/edit a single day's weight and/or calories -> Supabase + local.
+async function saveManualEntry() {
+  const statusEl = document.getElementById('manual-status');
+  const date = document.getElementById('manual-date').value;
+  const wRaw = document.getElementById('manual-weight').value.trim();
+  const iRaw = document.getElementById('manual-intake').value.trim();
+  if (!date) { statusEl.textContent = 'Pick a date first.'; return; }
+  const row = { date };
+  if (wRaw !== '') { const w = parseFloat(wRaw); if (!isNaN(w) && w > 0) row.weight_lb = w; }
+  if (iRaw !== '') { const c = parseFloat(iRaw); if (!isNaN(c) && c > 0) row.intake_kcal = c; }
+  if (row.weight_lb == null && row.intake_kcal == null) {
+    statusEl.textContent = 'Enter a weight and/or calories.';
+    return;
+  }
+  statusEl.textContent = 'Saving…';
+  try {
+    await pushBatch([row]); // merge-duplicates upsert; only the given columns change
+    const next = Object.assign({}, energyData[date]);
+    if (row.weight_lb != null) next.weight = row.weight_lb;
+    if (row.intake_kcal != null) next.intake = row.intake_kcal;
+    energyData[date] = next;
+    saveEnergy(energyData);
+    document.getElementById('manual-weight').value = '';
+    document.getElementById('manual-intake').value = '';
+    renderEnergy();
+    statusEl.textContent = 'Saved ' + date + '.';
+  } catch (e) {
+    statusEl.textContent = 'Save failed: ' + e.message;
+  }
+}
+
 // RFC-4180-ish CSV parser -> array of row objects keyed by header.
 function parseCSV(text) {
   text = text.replace(/^﻿/, ''); // strip BOM
@@ -1029,6 +1122,8 @@ function signed(n, digits, unit) {
 
 function renderEnergy() {
   const windowDays = parseInt(document.getElementById('energy-window').value, 10) || 14;
+  const manualDate = document.getElementById('manual-date');
+  if (manualDate && !manualDate.value) manualDate.value = todayKey; // default to today
   const res = analyzeEnergy(windowDays);
   const statusEl = document.getElementById('energy-status');
   const verdict = document.getElementById('energy-verdict');
@@ -1165,6 +1260,8 @@ document.getElementById('chart-range').addEventListener('change', renderEnergy);
 document.getElementById('sync-now').addEventListener('click', syncFromCloud);
 
 document.getElementById('push-cloud').addEventListener('click', pushToCloud);
+
+document.getElementById('manual-save').addEventListener('click', saveManualEntry);
 
 document.getElementById('clear-energy').addEventListener('click', () => {
   if (!confirm('Clear all imported weight & calorie data on this device?')) return;
