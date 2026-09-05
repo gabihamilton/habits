@@ -1,3 +1,6 @@
-# Personal health data exports — never publish to the public Pages repo
+# Personal data exports — never publish to the public Pages repo
 *.csv
+*.xlsx
+*.xls
+*.numbers
 .DS_Store
