@@ -7,6 +7,11 @@ A single static `index.html` (vanilla JS, no build step). Two parts:
 
 You can keep both parts or delete the habit tabs — the Weight tab is self-contained. **Claude can adapt any of this for you** (change the habit list, remove the habit tabs, restyle, etc.) — just ask it.
 
+### It doesn't matter which apps you use
+The app is just a web page + a database. **You read your weight and calories from whatever you already use — any food tracker (MyFitnessPal, LoseIt, MacroFactor, Cronometer…) and any scale/weight app — and type them into the built-in "Add / edit a day" form.** That's the whole data path, and it works on **any phone, including Android** (it's a website, not an iOS app).
+
+Everything below about **Apple Health, Cronometer, and Shortcuts is optional** — it's just an iOS convenience for auto-filling *weight*. Skip that entire section if you're not on iOS or you'd rather just type two numbers a day. If your apps have their own export/API and you want automatic import, ask Claude — it can build that for your specific apps.
+
 ---
 
 ## ⚠️ Most important step: use YOUR OWN Supabase
@@ -65,14 +70,16 @@ const ENERGY_KEY = 'gabi-energy-data';   // -> your-name-energy
 ## Step 4 — Deploy
 GitHub repo → **Settings → Pages** → deploy from the `main` branch (root). Your app will be live at `https://<you>.github.io/<repo>/`. Open it on your phone and **Add to Home Screen** for an app-like icon.
 
-## Step 5 — Use it
-- **Weight tab → "Add / edit a day":** pick a date (defaults to today), type your **weight** and/or **calories** (from whatever food tracker you use), tap **Save**. That's the reliable, accurate way to log.
+## Step 5 — Use it (works with any apps, any phone)
+- **Weight tab → "Add / edit a day":** pick a date (defaults to today), type your **weight** and/or **calories** — read off *whatever* food tracker and scale/weight app you use — tap **Save**. That's the reliable, universal way to log; nothing about it is tied to a specific app or platform.
 - The **Analysis window** (14/21/28 days) drives the verdict — 28 days is the steadiest read if you don't weigh every day.
 - Weigh on a consistent cadence (ideally every morning, same conditions) for the best trend.
 
 ---
 
-## Optional — auto-push weight from Apple Health (iOS, smart scale)
+## Optional (iOS only) — auto-push weight from Apple Health
+**Skip this unless you're on an iPhone and your weight is in Apple Health.** It just saves you typing the weight number. On Android or with any other setup, use the manual form above (or ask Claude to wire up your own apps' export/API).
+
 If your weight lives in Apple Health, a Shortcut can push it so you don't type it:
 1. **Date** → **Format Date** (Custom format `yyyy-MM-dd`).
 2. **Find Health Samples**: Body Mass, Sort by End Date, Order Latest, Limit 1 → **Calculate Statistics → Average**.
