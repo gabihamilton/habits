@@ -366,6 +366,13 @@
     white-space: pre-line;
     text-align: center;
   }
+  .burn-note {
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin: 4px 0 16px;
+  }
+  .burn-note:empty { display: none; }
   .import-window {
     font-size: 13px;
     color: var(--ink-soft);
@@ -507,6 +514,18 @@
       </div>
     </div>
 
+    <div class="stats" id="energy-stats3" style="display: none;">
+      <div class="stat">
+        <div class="num" id="energy-burn">—</div>
+        <div class="label">Cronometer est. burn</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="energy-burn-gap">—</div>
+        <div class="label">Cronometer is off by</div>
+      </div>
+    </div>
+    <p class="burn-note" id="energy-burn-note"></p>
+
     <div class="chart-head" id="weight-chart-title" style="display: none;">
       <span class="section-title" style="margin: 0;">Weight trend</span>
       <select id="chart-range">
@@ -532,6 +551,10 @@
       <div class="manual-row">
         <label for="manual-intake">Calories</label>
         <input type="number" id="manual-intake" inputmode="numeric" placeholder="from Cronometer">
+      </div>
+      <div class="manual-row">
+        <label for="manual-burn">Cronometer burn</label>
+        <input type="number" id="manual-burn" inputmode="numeric" placeholder="total burned (optional)">
       </div>
       <button id="manual-save" class="manual-save-btn">Save</button>
       <p class="manual-status" id="manual-status"></p>
@@ -579,7 +602,7 @@ const HABITS = [
   { id: 'magnesium', label: 'Magnesium' },
   { id: 'ltheanine', label: 'L-theanine' },
   { id: 'vitaminb', label: 'Vitamin B' },
-  { id: 'hairoil', label: 'Hair Oil treatment' },
+  { id: 'nighttea', label: 'Night tea' },
   { id: 'plannext', label: 'Planned food for next day' },
 ];
 
@@ -851,7 +874,9 @@ function loadEnergy() {
 function saveEnergy(data) {
   localStorage.setItem(ENERGY_KEY, JSON.stringify(data));
 }
-// energyData: { 'YYYY-MM-DD': { intake: kcal, weight: lb } }
+// energyData: { 'YYYY-MM-DD': { intake: kcal, weight: lb, burn: kcal } }
+// burn = Cronometer's own estimate of total energy burned that day (BMR +
+// activity + exercise), logged so we can compare it to the measured TDEE.
 const MIN_DATE = '2020-01-01'; // guard against stray/old rows (e.g. test data)
 let energyData = loadEnergy();
 // Purge any out-of-range dates left in local storage from earlier syncs.
@@ -865,7 +890,7 @@ async function syncFromCloud() {
   if (statusEl) statusEl.textContent = 'Syncing…';
   try {
     const res = await fetch(
-      SUPABASE_URL + '/rest/v1/health_daily?select=date,weight_lb,intake_kcal',
+      SUPABASE_URL + '/rest/v1/health_daily?select=*', // * so older tables without burn_kcal still sync
       { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }
     );
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -878,6 +903,7 @@ async function syncFromCloud() {
       // with no weigh-in or no logged food, and those shouldn't count.
       if (r.weight_lb != null && Number(r.weight_lb) > 0) next.weight = Number(r.weight_lb);
       if (r.intake_kcal != null && Number(r.intake_kcal) > 0) next.intake = Number(r.intake_kcal);
+      if (r.burn_kcal != null && Number(r.burn_kcal) > 0) next.burn = Number(r.burn_kcal);
       energyData[r.date] = next;
       merged++;
     });
@@ -905,7 +931,14 @@ async function pushBatch(rows) {
     },
     body: JSON.stringify(rows)
   });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).message || ''; } catch (e) {}
+    if (/burn_kcal/.test(detail)) {
+      throw new Error('your database has no burn_kcal column yet — run the SQL in SETUP.md');
+    }
+    throw new Error('HTTP ' + res.status + (detail ? ' (' + detail + ')' : ''));
+  }
 }
 
 async function pushToCloud() {
@@ -915,7 +948,9 @@ async function pushToCloud() {
     .map(k => ({ date: k, weight_lb: energyData[k].weight }));
   const intakeRows = keys.filter(k => typeof energyData[k].intake === 'number')
     .map(k => ({ date: k, intake_kcal: energyData[k].intake }));
-  if (!weightRows.length && !intakeRows.length) {
+  const burnRows = keys.filter(k => typeof energyData[k].burn === 'number')
+    .map(k => ({ date: k, burn_kcal: energyData[k].burn }));
+  if (!weightRows.length && !intakeRows.length && !burnRows.length) {
     if (logEl) logEl.textContent = 'Nothing to push yet — import a CSV first.';
     return;
   }
@@ -923,6 +958,7 @@ async function pushToCloud() {
   try {
     await pushBatch(weightRows);
     await pushBatch(intakeRows);
+    await pushBatch(burnRows);
     if (logEl) logEl.textContent = 'Pushed ' + keys.length + ' days to Supabase.';
   } catch (e) {
     if (logEl) logEl.textContent = 'Push failed: ' + e.message;
@@ -935,12 +971,14 @@ async function saveManualEntry() {
   const date = document.getElementById('manual-date').value;
   const wRaw = document.getElementById('manual-weight').value.trim();
   const iRaw = document.getElementById('manual-intake').value.trim();
+  const bRaw = document.getElementById('manual-burn').value.trim();
   if (!date) { statusEl.textContent = 'Pick a date first.'; return; }
   const row = { date };
   if (wRaw !== '') { const w = parseFloat(wRaw); if (!isNaN(w) && w > 0) row.weight_lb = w; }
   if (iRaw !== '') { const c = parseFloat(iRaw); if (!isNaN(c) && c > 0) row.intake_kcal = c; }
-  if (row.weight_lb == null && row.intake_kcal == null) {
-    statusEl.textContent = 'Enter a weight and/or calories.';
+  if (bRaw !== '') { const b = parseFloat(bRaw); if (!isNaN(b) && b > 0) row.burn_kcal = b; }
+  if (row.weight_lb == null && row.intake_kcal == null && row.burn_kcal == null) {
+    statusEl.textContent = 'Enter a weight, calories and/or Cronometer burn.';
     return;
   }
   statusEl.textContent = 'Saving…';
@@ -949,10 +987,12 @@ async function saveManualEntry() {
     const next = Object.assign({}, energyData[date]);
     if (row.weight_lb != null) next.weight = row.weight_lb;
     if (row.intake_kcal != null) next.intake = row.intake_kcal;
+    if (row.burn_kcal != null) next.burn = row.burn_kcal;
     energyData[date] = next;
     saveEnergy(energyData);
     document.getElementById('manual-weight').value = '';
     document.getElementById('manual-intake').value = '';
+    document.getElementById('manual-burn').value = '';
     renderEnergy();
     statusEl.textContent = 'Saved ' + date + '.';
   } catch (e) {
@@ -1111,7 +1151,13 @@ function analyzeEnergy(windowDays) {
   let status = 'maintenance';
   if (lbPerWeek <= -MAINTAIN_BAND) status = 'deficit';
   else if (lbPerWeek >= MAINTAIN_BAND) status = 'surplus';
+  // Cronometer's own burn estimate over the same window, for comparison.
+  const burns = Object.keys(energyData)
+    .filter(k => typeof energyData[k].burn === 'number' && dayNumber(k) >= cutoff)
+    .map(k => energyData[k].burn);
+  const avgBurn = burns.length ? burns.reduce((a, b) => a + b, 0) / burns.length : null;
   return { insufficient: false, status, lbPerWeek, avgIntake, balancePerDay, tdee,
+           avgBurn, burnDays: burns.length,
            weightDays: wpts.length, intakeDays: intakes.length, series };
 }
 
@@ -1130,12 +1176,16 @@ function renderEnergy() {
   const sub = document.getElementById('energy-verdict-sub');
   const stats1 = document.getElementById('energy-stats');
   const stats2 = document.getElementById('energy-stats2');
+  const stats3 = document.getElementById('energy-stats3');
+  const burnNote = document.getElementById('energy-burn-note');
   const chartTitle = document.getElementById('weight-chart-title');
   const chart = document.getElementById('weight-chart');
 
   statusEl.className = 'energy-status';
   stats1.style.display = 'none';
   stats2.style.display = 'none';
+  stats3.style.display = 'none';
+  burnNote.textContent = '';
 
   if (!res) {
     verdict.textContent = 'No data yet';
@@ -1159,9 +1209,38 @@ function renderEnergy() {
     document.getElementById('energy-intake').textContent = Math.round(res.avgIntake).toLocaleString() + ' kcal';
     document.getElementById('energy-trend').textContent = signed(res.lbPerWeek, 2, ' lb/wk');
     document.getElementById('energy-balance').textContent = signed(res.balancePerDay, null, ' kcal');
+    renderBurnComparison(res, windowDays);
   }
   chartTitle.style.display = 'block';
   drawWeightChart(res.series);
+}
+
+// Compare Cronometer's estimated burn with the burn measured from the weight trend.
+function renderBurnComparison(res, windowDays) {
+  const stats3 = document.getElementById('energy-stats3');
+  const note = document.getElementById('energy-burn-note');
+  if (res.avgBurn == null) return; // nothing logged — keep the section hidden
+  if (res.burnDays < 3) {
+    note.textContent = res.burnDays + ' day(s) of Cronometer burn in the last ' + windowDays +
+      ' days — log at least 3 to compare.';
+    return;
+  }
+  const gap = res.avgBurn - res.tdee;          // + Cronometer overestimates
+  const pct = gap / res.tdee * 100;
+  stats3.style.display = 'flex';
+  document.getElementById('energy-burn').textContent = Math.round(res.avgBurn).toLocaleString() + ' kcal';
+  document.getElementById('energy-burn-gap').textContent =
+    signed(gap, null, ' kcal') + ' (' + signed(pct, 0, '%') + ')';
+  const factor = res.tdee / res.avgBurn;
+  let msg;
+  if (Math.abs(pct) < 5) {
+    msg = 'Cronometer is close to your measured burn (within 5%).';
+  } else {
+    msg = 'Cronometer ' + (gap > 0 ? 'overestimates' : 'underestimates') + ' your burn by about ' +
+      Math.abs(Math.round(gap)).toLocaleString() + ' kcal/day. To correct it, multiply its number by ' +
+      factor.toFixed(2) + '.';
+  }
+  note.textContent = msg + ' Based on ' + res.burnDays + ' days with a Cronometer burn number.';
 }
 
 function drawWeightChart(fullSeries) {

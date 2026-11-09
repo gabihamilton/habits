@@ -32,6 +32,7 @@ create table if not exists public.health_daily (
   date         date primary key,
   weight_lb    numeric,
   intake_kcal  numeric,
+  burn_kcal    numeric,   -- your food app's estimated total burn (optional)
   updated_at   timestamptz not null default now()
 );
 
@@ -49,6 +50,12 @@ begin new.updated_at = now(); return new; end; $$;
 
 create trigger health_daily_touch before update on public.health_daily
   for each row execute function public.touch_updated_at();
+```
+
+**Already set up before this column existed?** Run this once to add it:
+
+```sql
+alter table public.health_daily add column if not exists burn_kcal numeric;
 ```
 
 ## Step 3 — Put in your credentials
@@ -72,6 +79,7 @@ GitHub repo → **Settings → Pages** → deploy from the `main` branch (root).
 
 ## Step 5 — Use it (works with any apps, any phone)
 - **Weight tab → "Add / edit a day":** pick a date (defaults to today), type your **weight** and/or **calories** — read off *whatever* food tracker and scale/weight app you use — tap **Save**. That's the reliable, universal way to log; nothing about it is tied to a specific app or platform.
+- **Optional — check your food app's burn estimate:** also type the app's *total* calories burned for the day (Cronometer: BMR + activity + exercise) into **Cronometer burn**. Once 3+ days are logged, the Weight tab shows that estimate next to your measured maintenance and how far off it is.
 - The **Analysis window** (14/21/28 days) drives the verdict — 28 days is the steadiest read if you don't weigh every day.
 - Weigh on a consistent cadence (ideally every morning, same conditions) for the best trend.
 
@@ -97,6 +105,7 @@ If your weight lives in Apple Health, a Shortcut can push it so you don't type i
 - The **weekly trend** = least-squares slope of that smoothed line over the analysis window, × 7.
 - **Daily balance** = slope (lb/day) × **3,500 kcal/lb** (energy in a pound of fat).
 - **Maintenance** = average intake − daily balance.
+- **Food-app burn check**: average logged burn over the window vs. maintenance above; the gap and % show how far the app's estimate is off.
 - **Verdict**: within ±0.2 lb/week = maintenance, above = surplus, below = deficit.
 
 It's only as accurate as your calorie logging and weigh-in consistency — and it needs ~2 weeks of data before the estimate stabilizes.
