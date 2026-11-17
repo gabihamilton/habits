@@ -13,9 +13,12 @@ Everything goes through `python3 -I .claude/skills/health-data/db.py` (no depend
 | Weekly check | `db.py check` (or `check 14`) → table + flags |
 | Fix numbers for a day | `db.py set 2026-11-12 intake=2095 burn=2495` |
 | Remove a number (e.g. no weigh-in that day) | `db.py clear 2026-11-07 weight` |
+| Mark / unmark a period day | `db.py set 2026-11-20 period=yes` (or `period=no`) |
 | How off is Cronometer | `db.py compare` (or `compare 21`) |
 
 Fields: `weight` (lb), `intake` (kcal eaten), `burn` (Cronometer's *total* burned: BMR + activity + exercise).
+`period` (yes/no): Gabi was on their period that day. Weigh-ins on period days and 2 days either side
+are left out of the trend (water weight); calories still count.
 `set` and `clear` print the row before and after; show both.
 
 ## How the data behaves
@@ -39,6 +42,8 @@ Fields: `weight` (lb), `intake` (kcal eaten), `burn` (Cronometer's *total* burne
 Gabi eats intuitively for ~2 weeks (restarted Nov 7, 2026), logging everything, to measure how far
 Cronometer's burn estimate is from Gabi's real maintenance (`compare`). Notes when reporting:
 - Real maintenance = avg eaten − (trend slope × 3,500 kcal/lb); trend = calendar-day-aware EMA (α 0.1).
+- Period weigh-ins (period days ± 2) are skipped by the trend, so bloating doesn't fake a surplus.
+  Say how many were left out when it applies.
 - The first week after a break is often water weight; trust the 14-day number, 21 is steadier.
 - Report: Cronometer avg burn, measured maintenance, gap in kcal and %, correction factor
   (multiply Cronometer's number by it).

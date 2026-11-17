@@ -33,6 +33,7 @@ create table if not exists public.health_daily (
   weight_lb    numeric,
   intake_kcal  numeric,
   burn_kcal    numeric,   -- your food app's estimated total burn (optional)
+  period       boolean,   -- on your period that day (optional; those weigh-ins skip the trend)
   updated_at   timestamptz not null default now()
 );
 
@@ -52,10 +53,11 @@ create trigger health_daily_touch before update on public.health_daily
   for each row execute function public.touch_updated_at();
 ```
 
-**Already set up before this column existed?** Run this once to add it:
+**Already set up before these columns existed?** Run this once to add them:
 
 ```sql
 alter table public.health_daily add column if not exists burn_kcal numeric;
+alter table public.health_daily add column if not exists period boolean;
 ```
 
 ## Step 3 — Put in your credentials

@@ -8,7 +8,8 @@ to `main` is fine here; no branches/PRs needed. After a push Gabi closes and reo
   `const HABITS = [...]` in `index.html`. For changes use the `edit-habits` skill.
 - **Weight tab** — weight, calories eaten and Cronometer's estimated burn, one row per day in
   Supabase (`health_daily`). It computes real maintenance from the weight trend and compares it
-  with Cronometer's burn. For reading/fixing days or the weekly check use the `health-data` skill.
+  with Cronometer's burn. Period days (optional `period` column) and 2 days either side are left out
+  of the trend so water weight doesn't fake a surplus. For reading/fixing days or the weekly check use the `health-data` skill.
 - `SETUP.md` is the guide for other people self-hosting it; keep its SQL in sync with the table.
 
 Never commit CSV/spreadsheet exports (personal data; see `.gitignore`). The Supabase key in

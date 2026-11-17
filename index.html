@@ -16,6 +16,7 @@
     --done-ink: #2F5C33;
     --accent: #3B5B92;
     --accent-soft: #EDF1F8;
+    --period-band: rgba(196, 92, 120, 0.13);
     --heat-0: #EDEAE1;
     --heat-1: #CFE2CC;
     --heat-2: #A9CDA4;
@@ -309,6 +310,12 @@
     color: var(--ink);
     max-width: 55%;
   }
+  .manual-row input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
   .manual-save-btn {
     width: 100%;
     margin-top: 12px;
@@ -555,6 +562,10 @@
       <div class="manual-row">
         <label for="manual-burn">Cronometer burn</label>
         <input type="number" id="manual-burn" inputmode="numeric" placeholder="total burned (optional)">
+      </div>
+      <div class="manual-row">
+        <label for="manual-period">On my period</label>
+        <input type="checkbox" id="manual-period">
       </div>
       <button id="manual-save" class="manual-save-btn">Save</button>
       <p class="manual-status" id="manual-status"></p>
@@ -867,6 +878,10 @@ const SUPABASE_KEY = 'sb_publishable_BVJz5Rcer9rJlP-AcVPp0A_n0-UAK6z';
 const KCAL_PER_LB = 3500;
 const EMA_ALPHA = 0.1;      // weight-trend smoothing
 const MAINTAIN_BAND = 0.2;  // lb/week dead-band counted as "maintenance"
+// Period water weight: weigh-ins on period days, and this many days either
+// side (bloating often starts a day or two before), are left out of the trend.
+const PERIOD_PAD_BEFORE = 2;
+const PERIOD_PAD_AFTER = 2;
 
 function loadEnergy() {
   try { return JSON.parse(localStorage.getItem(ENERGY_KEY) || '{}'); }
@@ -910,6 +925,7 @@ async function syncFromCloud() {
       else if (!('burn_kcal' in r) &&energyData[r.date] && energyData[r.date].burn != null) {
         next.burn = energyData[r.date].burn; // table has no burn column — keep local
       }
+      if (r.period === true) next.period = true;
       energyData[r.date] = next;
       merged++;
     });
@@ -943,6 +959,9 @@ async function pushBatch(rows) {
     if (/burn_kcal/.test(detail)) {
       throw new Error('your database has no burn_kcal column yet — run the SQL in SETUP.md');
     }
+    if (/period/.test(detail)) {
+      throw new Error('your database has no period column yet — run the SQL in SETUP.md');
+    }
     throw new Error('HTTP ' + res.status + (detail ? ' (' + detail + ')' : ''));
   }
 }
@@ -956,7 +975,9 @@ async function pushToCloud() {
     .map(k => ({ date: k, intake_kcal: energyData[k].intake }));
   const burnRows = keys.filter(k => typeof energyData[k].burn === 'number')
     .map(k => ({ date: k, burn_kcal: energyData[k].burn }));
-  if (!weightRows.length && !intakeRows.length && !burnRows.length) {
+  const periodRows = keys.filter(k => energyData[k].period)
+    .map(k => ({ date: k, period: true }));
+  if (!weightRows.length && !intakeRows.length && !burnRows.length && !periodRows.length) {
     if (logEl) logEl.textContent = 'Nothing to push yet — import a CSV first.';
     return;
   }
@@ -965,6 +986,7 @@ async function pushToCloud() {
     await pushBatch(weightRows);
     await pushBatch(intakeRows);
     await pushBatch(burnRows);
+    await pushBatch(periodRows);
     if (logEl) logEl.textContent = 'Pushed ' + keys.length + ' days to Supabase.';
   } catch (e) {
     if (logEl) logEl.textContent = 'Push failed: ' + e.message;
@@ -983,8 +1005,12 @@ async function saveManualEntry() {
   if (wRaw !== '') { const w = parseFloat(wRaw); if (!isNaN(w) && w > 0) row.weight_lb = w; }
   if (iRaw !== '') { const c = parseFloat(iRaw); if (!isNaN(c) && c > 0) row.intake_kcal = c; }
   if (bRaw !== '') { const b = parseFloat(bRaw); if (!isNaN(b) && b > 0) row.burn_kcal = b; }
-  if (row.weight_lb == null && row.intake_kcal == null && row.burn_kcal == null) {
-    statusEl.textContent = 'Enter a weight, calories and/or Cronometer burn.';
+  // The checkbox shows the saved state for the picked date, so only send it
+  // when it was changed (keeps saves working on tables without the column).
+  const period = document.getElementById('manual-period').checked;
+  if (period !== !!(energyData[date] && energyData[date].period)) row.period = period;
+  if (row.weight_lb == null && row.intake_kcal == null && row.burn_kcal == null && row.period == null) {
+    statusEl.textContent = 'Enter a weight, calories, Cronometer burn or period.';
     return;
   }
   statusEl.textContent = 'Saving…';
@@ -994,6 +1020,8 @@ async function saveManualEntry() {
     if (row.weight_lb != null) next.weight = row.weight_lb;
     if (row.intake_kcal != null) next.intake = row.intake_kcal;
     if (row.burn_kcal != null) next.burn = row.burn_kcal;
+    if (row.period === true) next.period = true;
+    if (row.period === false) delete next.period;
     energyData[date] = next;
     saveEnergy(energyData);
     document.getElementById('manual-weight').value = '';
@@ -1103,16 +1131,39 @@ function dayNumber(key) {
   return Math.round(dateFromKey(key).getTime() / 86400000);
 }
 
+// Day numbers whose weigh-ins carry period water weight (period days ± padding).
+function periodWaterDays() {
+  const days = new Set();
+  Object.keys(energyData).forEach(k => {
+    if (!energyData[k].period) return;
+    const d = dayNumber(k);
+    for (let i = -PERIOD_PAD_BEFORE; i <= PERIOD_PAD_AFTER; i++) days.add(d + i);
+  });
+  return days;
+}
+
+// Keep the "On my period" box in step with what's saved for the picked date.
+function syncPeriodBox() {
+  const date = document.getElementById('manual-date').value;
+  document.getElementById('manual-period').checked = !!(energyData[date] && energyData[date].period);
+}
+
 // Exponentially-smoothed weight trend over all weigh-ins, sorted by date.
+// Weigh-ins near a period are marked `excluded`: they don't move the trend
+// (it carries straight through them) and the maintenance fit skips them.
 function weightTrendSeries() {
   const keys = Object.keys(energyData)
     .filter(k => typeof energyData[k].weight === 'number')
     .sort();
+  const water = periodWaterDays();
   let trend = null;
   let prevDay = null;
   return keys.map(k => {
     const w = energyData[k].weight;
     const day = dayNumber(k);
+    if (water.has(day)) {
+      return { key: k, raw: w, trend: trend === null ? w : trend, excluded: true };
+    }
     if (trend === null) {
       trend = w;
     } else {
@@ -1134,12 +1185,14 @@ function analyzeEnergy(windowDays) {
   if (series.length < 2) return null;
   const lastDay = dayNumber(series[series.length - 1].key);
   const cutoff = lastDay - windowDays + 1;
-  const wpts = series.filter(p => dayNumber(p.key) >= cutoff);
+  const inWindow = series.filter(p => dayNumber(p.key) >= cutoff);
+  const wpts = inWindow.filter(p => !p.excluded);
+  const periodSkipped = inWindow.length - wpts.length;
   const intakes = Object.keys(energyData)
     .filter(k => typeof energyData[k].intake === 'number' && dayNumber(k) >= cutoff)
     .map(k => energyData[k].intake);
   if (wpts.length < 3 || intakes.length < 3) {
-    return { insufficient: true, weightDays: wpts.length, intakeDays: intakes.length, series };
+    return { insufficient: true, weightDays: wpts.length, intakeDays: intakes.length, periodSkipped, series };
   }
   // Least-squares slope of trend weight vs. day index (lb/day).
   const xs = wpts.map(p => dayNumber(p.key));
@@ -1164,7 +1217,7 @@ function analyzeEnergy(windowDays) {
   const avgBurn = burns.length ? burns.reduce((a, b) => a + b, 0) / burns.length : null;
   return { insufficient: false, status, lbPerWeek, avgIntake, balancePerDay, tdee,
            avgBurn, burnDays: burns.length,
-           weightDays: wpts.length, intakeDays: intakes.length, series };
+           weightDays: wpts.length, intakeDays: intakes.length, periodSkipped, series };
 }
 
 function signed(n, digits, unit) {
@@ -1176,6 +1229,7 @@ function renderEnergy() {
   const windowDays = parseInt(document.getElementById('energy-window').value, 10) || 14;
   const manualDate = document.getElementById('manual-date');
   if (manualDate && !manualDate.value) manualDate.value = todayKey; // default to today
+  syncPeriodBox();
   const res = analyzeEnergy(windowDays);
   const statusEl = document.getElementById('energy-status');
   const verdict = document.getElementById('energy-verdict');
@@ -1203,12 +1257,15 @@ function renderEnergy() {
   if (res.insufficient) {
     verdict.textContent = 'Need more data';
     sub.textContent = res.weightDays + ' weigh-ins and ' + res.intakeDays +
-      ' logged days in the last ' + windowDays + ' days — need at least 3 of each.';
+      ' logged days in the last ' + windowDays + ' days — need at least 3 of each.' +
+      (res.periodSkipped ? ' (' + res.periodSkipped + ' weigh-ins around your period are left out.)' : '');
   } else {
     const labels = { deficit: 'Deficit', maintenance: 'Maintenance', surplus: 'Surplus' };
     statusEl.classList.add(res.status);
     verdict.textContent = labels[res.status];
-    sub.textContent = 'Trend ' + signed(res.lbPerWeek, 2, ' lb/week') + ' over ' + windowDays + ' days';
+    sub.textContent = 'Trend ' + signed(res.lbPerWeek, 2, ' lb/week') + ' over ' + windowDays + ' days' +
+      (res.periodSkipped ? ' · ' + res.periodSkipped + ' period weigh-in' +
+        (res.periodSkipped === 1 ? '' : 's') + ' left out' : '');
     stats1.style.display = 'flex';
     stats2.style.display = 'flex';
     document.getElementById('energy-tdee').textContent = Math.round(res.tdee).toLocaleString() + ' kcal';
@@ -1277,9 +1334,23 @@ function drawWeightChart(fullSeries) {
     '<line x1="' + padL + '" y1="' + sy(minY).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(minY).toFixed(1) + '" stroke="var(--line)" stroke-width="1"/>' +
     '<line x1="' + padL + '" y1="' + sy(maxY).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(maxY).toFixed(1) + '" stroke="var(--line)" stroke-width="1" opacity="0.5"/>';
 
+  // Period days: a soft band behind the points, one day wide each.
+  const dayW = (maxX === minX ? 0 : (W - padL - padR) / (maxX - minX));
+  const bands = Object.keys(energyData)
+    .filter(k => energyData[k].period && dayNumber(k) >= minX && dayNumber(k) <= maxX)
+    .map(k => {
+      const x0 = Math.max(padL, sx(dayNumber(k)) - dayW / 2);
+      const x1 = Math.min(W - padR, sx(dayNumber(k)) + dayW / 2);
+      return '<rect x="' + x0.toFixed(1) + '" y="' + padT + '" width="' + Math.max(2, x1 - x0).toFixed(1) +
+        '" height="' + (H - padT - padB) + '" fill="var(--period-band)"/>';
+    }).join('');
+
+  // Weigh-ins left out of the trend (around a period) are drawn hollow.
   const dots = series.map(p =>
-    '<circle cx="' + sx(dayNumber(p.key)).toFixed(1) + '" cy="' + sy(p.raw).toFixed(1) +
-    '" r="2.3" fill="var(--ink-soft)" opacity="0.4"/>').join('');
+    '<circle cx="' + sx(dayNumber(p.key)).toFixed(1) + '" cy="' + sy(p.raw).toFixed(1) + '" r="2.3" ' +
+    (p.excluded
+      ? 'fill="none" stroke="var(--ink-soft)" stroke-width="1" opacity="0.6"/>'
+      : 'fill="var(--ink-soft)" opacity="0.4"/>')).join('');
   const trendPath = series.map((p, i) =>
     (i ? 'L' : 'M') + sx(dayNumber(p.key)).toFixed(1) + ' ' + sy(p.trend).toFixed(1)).join(' ');
 
@@ -1304,7 +1375,7 @@ function drawWeightChart(fullSeries) {
 
   el.innerHTML =
     '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
-    axis + dots +
+    bands + axis + dots +
     '<path d="' + trendPath + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>' +
     yLabels + xLabels +
     '</svg>';
@@ -1341,6 +1412,7 @@ document.getElementById('csv-input').addEventListener('change', (e) => {
 
 document.getElementById('energy-window').addEventListener('change', renderEnergy);
 document.getElementById('chart-range').addEventListener('change', renderEnergy);
+document.getElementById('manual-date').addEventListener('change', syncPeriodBox);
 
 document.getElementById('sync-now').addEventListener('click', syncFromCloud);
 

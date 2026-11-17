@@ -2,7 +2,7 @@
 """Read and fix the tracker's daily rows in Supabase (table health_daily).
 
   db.py get [FROM] [TO]              rows as a table (default: last 14 days)
-  db.py set DATE field=value ...     change only the given fields (weight, intake, burn)
+  db.py set DATE field=value ...     change only the given fields (weight, intake, burn, period=yes/no)
   db.py clear DATE field ...         set fields to empty (e.g. a wrong weigh-in)
   db.py check [DAYS]                 table + things worth flagging (default 7 days)
   db.py compare [WINDOW]             measured maintenance vs Cronometer burn (default 14)
@@ -14,8 +14,9 @@ from datetime import date, timedelta
 
 URL = 'https://mghqfyjckbzhyefpzkaq.supabase.co/rest/v1/health_daily'
 KEY = 'sb_publishable_BVJz5Rcer9rJlP-AcVPp0A_n0-UAK6z'  # publishable; public in index.html
-FIELDS = {'weight': 'weight_lb', 'intake': 'intake_kcal', 'burn': 'burn_kcal'}
+FIELDS = {'weight': 'weight_lb', 'intake': 'intake_kcal', 'burn': 'burn_kcal', 'period': 'period'}
 KCAL_PER_LB, EMA_ALPHA, BAND = 3500, 0.1, 0.2
+PAD_BEFORE, PAD_AFTER = 2, 2  # days around a period whose weigh-ins skip the trend
 
 
 def req(method, query='', body=None):
@@ -43,11 +44,11 @@ def fmt(v, d=0):
 
 
 def table(rs):
-    print('| Day | Weight (lb) | Eaten (kcal) | Cronometer burn (kcal) |\n|---|---|---|---|')
+    print('| Day | Weight (lb) | Eaten (kcal) | Cronometer burn (kcal) | Period |\n|---|---|---|---|---|')
     for r in rs:
         dd = date.fromisoformat(r['date'])
         print(f"| {dd:%a %b} {dd.day} | {fmt(num(r['weight_lb']), 1)} | {fmt(num(r['intake_kcal']))} "
-              f"| {fmt(num(r.get('burn_kcal')))} |")
+              f"| {fmt(num(r.get('burn_kcal')))} | {'yes' if r.get('period') else ''} |")
 
 
 def check(days):
@@ -76,22 +77,28 @@ def check(days):
 
 def compare(window):
     rs = rows('2020-01-01')
-    pts, trend, prev_day = [], None, None
-    for r in rs:  # calendar-day-aware EMA over full history
+    water = {date.fromisoformat(r['date']).toordinal() + i
+             for r in rs if r.get('period') for i in range(-PAD_BEFORE, PAD_AFTER + 1)}
+    pts, trend, prev_day, skipped = [], None, None, []
+    for r in rs:  # calendar-day-aware EMA over full history; period water weight skipped
         w = num(r['weight_lb'])
         if w is None: continue
         dn = date.fromisoformat(r['date']).toordinal()
+        if dn in water: skipped.append(dn); continue
         trend = w if trend is None else trend + (1 - (1 - EMA_ALPHA) ** max(1, dn - prev_day)) * (w - trend)
         prev_day = dn
         pts.append((dn, trend))
     if len(pts) < 2: sys.exit('Not enough weigh-ins.')
-    cutoff = pts[-1][0] - window + 1
+    last = max(pts[-1][0], skipped[-1] if skipped else 0)
+    cutoff = last - window + 1
     wp = [p for p in pts if p[0] >= cutoff]
     recent = [r for r in rs if date.fromisoformat(r['date']).toordinal() >= cutoff]
     intakes = [num(r['intake_kcal']) for r in recent if num(r['intake_kcal'])]
     burns = [num(r.get('burn_kcal')) for r in recent if num(r.get('burn_kcal'))]
-    print(f'Window: last {window} days ending {date.fromordinal(pts[-1][0])} — '
-          f'{len(wp)} weigh-ins, {len(intakes)} days eaten, {len(burns)} days burn')
+    left_out = sum(1 for d in skipped if d >= cutoff)
+    print(f'Window: last {window} days ending {date.fromordinal(last)} — '
+          f'{len(wp)} weigh-ins, {len(intakes)} days eaten, {len(burns)} days burn'
+          + (f'; {left_out} period weigh-ins left out' if left_out else ''))
     if len(wp) < 3 or len(intakes) < 3: sys.exit('Need at least 3 weigh-ins and 3 days eaten.')
     mx = sum(p[0] for p in wp) / len(wp); my = sum(p[1] for p in wp) / len(wp)
     den = sum((p[0] - mx) ** 2 for p in wp)
@@ -120,7 +127,9 @@ def main(a):
         for x in a[2:]:
             k, _, v = x.partition('=')
             if k not in FIELDS: sys.exit(f'unknown field {k}; use {", ".join(FIELDS)}')
-            body[FIELDS[k]] = None if cmd == 'clear' else float(v)
+            if cmd == 'clear': body[FIELDS[k]] = None
+            elif k == 'period': body[k] = v.lower() in ('1', 'yes', 'y', 'true', 'on')
+            else: body[FIELDS[k]] = float(v)
         before = rows(d, d)
         if not before:
             if cmd == 'clear': sys.exit(f'No row for {d}.')
