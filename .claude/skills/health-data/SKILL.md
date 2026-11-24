@@ -23,6 +23,8 @@ are left out of the trend (water weight); calories still count.
 
 ## How the data behaves
 - One row per date (primary key). A save overwrites only the fields it sends; it never duplicates.
+- The food-optimization project's `log-day` skill also writes intake / burn / weight here from Cronometer
+  screenshots (same `db.py set`), so a row can appear without Gabi using the form.
 - Gabi enters data with the app's **Add / edit a day** form: filled boxes replace, empty boxes keep
   the saved value. The form cannot clear a value — that is what `db.py clear` is for.
 - The phone keeps a local copy and re-syncs on opening the Weight tab; the cloud row wins per day,
