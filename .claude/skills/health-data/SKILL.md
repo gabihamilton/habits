@@ -46,6 +46,8 @@ are left out of the trend (water weight); calories still count.
 Gabi eats intuitively for ~2 weeks (restarted Nov 7, 2026), logging everything, to measure how far
 Cronometer's burn estimate is from Gabi's real maintenance (`compare`). Notes when reporting:
 - Real maintenance = avg eaten − (trend slope × 3,500 kcal/lb); trend = calendar-day-aware EMA (α 0.1).
+  At the start and after a break of 14+ days it restarts from the average of the first week's
+  weigh-ins (max 5), not from one reading — one low/high first reading used to fake a gain/loss.
 - Period weigh-ins (period days ± 2) are skipped by the trend, so bloating doesn't fake a surplus.
   Say how many were left out when it applies.
 - The ±2 window was checked (Nov 2026) against 12 cycles of scale weigh-ins: weight is lowest 3–7 days

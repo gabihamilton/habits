@@ -882,6 +882,12 @@ const MAINTAIN_BAND = 0.2;  // lb/week dead-band counted as "maintenance"
 // side (bloating often starts a day or two before), are left out of the trend.
 const PERIOD_PAD_BEFORE = 2;
 const PERIOD_PAD_AFTER = 2;
+// After a break longer than this (days), the trend restarts from the average
+// of the first few weigh-ins, not from one reading (which would fake a gain or loss
+// while the trend crawls toward the real weight).
+const TREND_RESTART_GAP = 14;
+const TREND_SEED_DAYS = 7;  // average the weigh-ins in the first week back…
+const TREND_SEED_MAX = 5;   // …at most this many
 
 function loadEnergy() {
   try { return JSON.parse(localStorage.getItem(ENERGY_KEY) || '{}'); }
@@ -1151,11 +1157,14 @@ function syncPeriodBox() {
 // Exponentially-smoothed weight trend over all weigh-ins, sorted by date.
 // Weigh-ins near a period are marked `excluded`: they don't move the trend
 // (it carries straight through them) and the maintenance fit skips them.
+// At the start, and after a break of more than TREND_RESTART_GAP days, the trend
+// starts from the average of the first weigh-ins back (see trendSeed).
 function weightTrendSeries() {
   const keys = Object.keys(energyData)
     .filter(k => typeof energyData[k].weight === 'number')
     .sort();
   const water = periodWaterDays();
+  const kept = keys.filter(k => !water.has(dayNumber(k)));
   let trend = null;
   let prevDay = null;
   return keys.map(k => {
@@ -1164,8 +1173,8 @@ function weightTrendSeries() {
     if (water.has(day)) {
       return { key: k, raw: w, trend: trend === null ? w : trend, excluded: true };
     }
-    if (trend === null) {
-      trend = w;
+    if (trend === null || day - prevDay > TREND_RESTART_GAP) {
+      trend = trendSeed(kept, kept.indexOf(k));
     } else {
       // Calendar-day-aware EMA: scale the nudge by days elapsed since the last
       // weigh-in, so a reading after a gap catches up appropriately. For a
@@ -1177,6 +1186,18 @@ function weightTrendSeries() {
     prevDay = day;
     return { key: k, raw: w, trend: trend };
   });
+}
+
+// Starting value for the trend: the average of the weigh-ins in the first
+// TREND_SEED_DAYS from kept[i] on (at most TREND_SEED_MAX of them).
+function trendSeed(kept, i) {
+  const start = dayNumber(kept[i]);
+  const vals = [];
+  for (let j = i; j < kept.length && vals.length < TREND_SEED_MAX; j++) {
+    if (dayNumber(kept[j]) - start >= TREND_SEED_DAYS) break;
+    vals.push(energyData[kept[j]].weight);
+  }
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 // Adaptive TDEE: derive maintenance from real intake vs. trend-weight change.

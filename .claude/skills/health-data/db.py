@@ -17,6 +17,9 @@ KEY = 'sb_publishable_BVJz5Rcer9rJlP-AcVPp0A_n0-UAK6z'  # publishable; public in
 FIELDS = {'weight': 'weight_lb', 'intake': 'intake_kcal', 'burn': 'burn_kcal', 'period': 'period'}
 KCAL_PER_LB, EMA_ALPHA, BAND = 3500, 0.1, 0.2
 PAD_BEFORE, PAD_AFTER = 2, 2  # days around a period whose weigh-ins skip the trend
+# After a break of more than RESTART_GAP days the trend restarts from the average of the
+# first weigh-ins back (within SEED_DAYS, at most SEED_MAX) — same as the app.
+RESTART_GAP, SEED_DAYS, SEED_MAX = 14, 7, 5
 
 
 def req(method, query='', body=None):
@@ -79,13 +82,19 @@ def compare(window):
     rs = rows('2020-01-01')
     water = {date.fromisoformat(r['date']).toordinal() + i
              for r in rs if r.get('period') for i in range(-PAD_BEFORE, PAD_AFTER + 1)}
+    kept = [(date.fromisoformat(r['date']).toordinal(), num(r['weight_lb'])) for r in rs if num(r['weight_lb']) is not None]
+    kept = [(dn, w) for dn, w in kept if dn not in water]
+    def seed(dn):
+        vals = [w for d, w in kept if dn <= d < dn + SEED_DAYS][:SEED_MAX]
+        return sum(vals) / len(vals)
     pts, trend, prev_day, skipped = [], None, None, []
     for r in rs:  # calendar-day-aware EMA over full history; period water weight skipped
         w = num(r['weight_lb'])
         if w is None: continue
         dn = date.fromisoformat(r['date']).toordinal()
         if dn in water: skipped.append(dn); continue
-        trend = w if trend is None else trend + (1 - (1 - EMA_ALPHA) ** max(1, dn - prev_day)) * (w - trend)
+        if trend is None or dn - prev_day > RESTART_GAP: trend = seed(dn)
+        else: trend = trend + (1 - (1 - EMA_ALPHA) ** max(1, dn - prev_day)) * (w - trend)
         prev_day = dn
         pts.append((dn, trend))
     if len(pts) < 2: sys.exit('Not enough weigh-ins.')
