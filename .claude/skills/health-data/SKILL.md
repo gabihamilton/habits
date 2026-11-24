@@ -46,6 +46,13 @@ Cronometer's burn estimate is from Gabi's real maintenance (`compare`). Notes wh
 - Real maintenance = avg eaten − (trend slope × 3,500 kcal/lb); trend = calendar-day-aware EMA (α 0.1).
 - Period weigh-ins (period days ± 2) are skipped by the trend, so bloating doesn't fake a surplus.
   Say how many were left out when it applies.
+- The ±2 window was checked (Nov 2026) against 12 cycles of scale weigh-ins: weight is lowest 3–7 days
+  before the period, rises ~1 lb from 2 days before, and is back to normal by about day 3. So keep ±2;
+  high weigh-ins a week before a period are ordinary noise, not water. Changing the window moved the
+  Cronometer correction factor by only ~0.01. Calories eaten looked a little higher the week before
+  (~+150 kcal) but too few logged cycles to trust.
+- RENPHO scale exports give times in Geneva time; before Oct 2026 Gabi lived in Chicago (7 h behind),
+  so "afternoon" times there are morning weigh-ins. Gabi always weighs in in the morning.
 - The first week after a break is often water weight; trust the 14-day number, 21 is steadier.
 - Report: Cronometer avg burn, measured maintenance, gap in kcal and %, correction factor
   (multiply Cronometer's number by it).
