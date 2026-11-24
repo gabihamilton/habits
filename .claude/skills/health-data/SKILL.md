@@ -36,7 +36,9 @@ are left out of the trend (water weight); calories still count.
 - Answer with the **app's own numbers** in a table (Day | Weight | Eaten | Cronometer burn) so Gabi can
   compare with Cronometer. Don't bring in other projects' data (food-optimization) unless asked.
 - Real spikes stay: a ~2 lb jump after a big or salty day is water; the trend line smooths it.
-  Ask "typo or real?" once, and keep it if real.
+  Ask "typo or real?" once, and keep it if real. Big estimated days (buffets, nights out) and
+  rest days with a low burn are normal too.
+- Gabi often writes after midnight: "today" then means the day that just ended. Don't question it.
 
 ## The Cronometer experiment
 Gabi eats intuitively for ~2 weeks (restarted Nov 7, 2026), logging everything, to measure how far
