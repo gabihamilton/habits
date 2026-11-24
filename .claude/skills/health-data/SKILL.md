@@ -29,7 +29,7 @@ are left out of the trend (water weight); calories still count.
   the saved value. The form cannot clear a value — that is what `db.py clear` is for.
 - The phone keeps a local copy and re-syncs on opening the Weight tab; the cloud row wins per day,
   so a fix here reaches the phone on Gabi's next open. No code change or push needed for data fixes.
-- Gabi deleted the Apple Health Shortcut (Nov 2026). Values with long decimals (e.g. 145.062680002205)
+- Gabi deleted the Apple Health Shortcut (Nov 2026), but its nightly automation kept writing until Nov 25 (Nov 9 eaten, Nov 23–24 weigh-ins). Values with long decimals (e.g. 145.062680002205)
   are old Shortcut writes; clean numbers are typed.
 
 ## Rules
