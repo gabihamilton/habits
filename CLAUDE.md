@@ -1,5 +1,7 @@
 # habits — notes for Claude
 
+Shared profile (goal, day types, health, logistics; private, outside the repo): @~/.claude/me.md
+
 Gabi's personal habit + weight tracker. One static file, `index.html` (vanilla JS, no build).
 GitHub Pages serves `main`, so **pushing to `main` = live on Gabi's phone**. Committing straight
 to `main` is fine here; no branches/PRs needed. After a push Gabi closes and reopens the app.
