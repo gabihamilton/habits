@@ -35,7 +35,11 @@ def rows(frm=None, to=None):
     q = '?select=*&order=date'
     if frm: q += '&date=gte.' + frm
     if to: q += '&date=lte.' + to
-    return req('GET', q)
+    out = []  # Supabase caps a response at 1000 rows: page through
+    while True:
+        page = req('GET', q + f'&limit=1000&offset={len(out)}')
+        out += page
+        if len(page) < 1000: return out
 
 
 def num(v):  # 0/blank count as "no reading", same as the app

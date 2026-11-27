@@ -32,6 +32,9 @@ are left out of the trend (water weight); calories still count.
 - Gabi deleted the Apple Health Shortcut (Nov 2026), but its nightly automation kept writing until Nov 25 (Nov 9 eaten, Nov 23–24 weigh-ins). Values with long decimals (e.g. 145.062680002205)
   are old Shortcut writes; clean numbers are typed.
 
+- History back to Jun 2017 was imported from Cronometer's export on Nov 27 2026 (weights from all sources;
+  intake only for days ≥ 1,200 kcal or marked Completed; no burn before Aug 2025). The import only filled empty fields.
+
 ## Rules
 - Change data only when Gabi gives the numbers (or explicitly asks). If what Gabi says doesn't match
   the row (e.g. a different day already holds those values), show the row and ask first.
